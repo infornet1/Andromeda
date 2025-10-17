@@ -42,3 +42,4 @@ Thumbs.db
 
 # Trading data
 data/trades_paper_backup_*.db
+email_config.json
