@@ -1,0 +1,31 @@
+{
+  "initial_capital": 160.0,
+  "leverage": 5,
+  "risk_per_trade": 2.0,
+  "daily_loss_limit": 5.0,
+  "max_drawdown": 37.5,
+  "max_positions": 2,
+  "consecutive_loss_limit": 3,
+
+  "symbol": "BTC-USDT",
+  "timeframe": "5m",
+  "signal_check_interval": 300,
+
+  "adx_period": 14,
+  "adx_threshold": 25,
+  "adx_slope_min": 0.5,
+  "di_spread_min": 5.0,
+  "min_confidence": 0.6,
+
+  "enable_short_bias": true,
+  "short_bias_multiplier": 1.5,
+
+  "sl_atr_multiplier": 2.0,
+  "tp_atr_multiplier": 4.0,
+
+  "enable_trailing_stop": false,
+  "trailing_stop_activation": 0.5,
+  "trailing_stop_distance": 0.3,
+
+  "comment": "ADX Strategy v2.0 - $160 Capital, $60 Max Loss (37.5%)"
+}

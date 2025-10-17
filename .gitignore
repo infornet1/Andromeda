@@ -1,0 +1,44 @@
+# Environment and credentials
+config/.env
+.env
+*.env
+
+# API Keys and secrets
+config/.env.*
+
+# Database files
+data/*.db
+data/*.db-journal
+
+# Log files
+logs/*.log
+logs/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# Trading data
+data/trades_paper_backup_*.db
