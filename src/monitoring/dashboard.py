@@ -170,10 +170,35 @@ class Dashboard:
 
     def _get_recent_trades(self) -> List[Dict]:
         """Get recent closed positions - simplified format for snapshot"""
+        # Try to get from database first (persistent storage)
+        try:
+            from src.persistence.trade_database import TradeDatabase
+            db = TradeDatabase()
+            db_trades = db.get_all_trades(limit=10)
+
+            if db_trades:
+                # Convert database trades to dashboard format
+                trade_data = []
+                for trade in db_trades:
+                    trade_data.append({
+                        'id': trade.get('id'),
+                        'side': trade.get('side'),
+                        'entry_price': trade.get('entry_price'),
+                        'exit_price': trade.get('exit_price'),
+                        'pnl': trade.get('pnl'),
+                        'pnl_percent': trade.get('pnl_percent'),
+                        'exit_reason': trade.get('exit_reason'),
+                        'hold_duration': trade.get('hold_duration'),
+                        'closed_at': trade.get('closed_at')
+                    })
+                return trade_data
+        except Exception as e:
+            logger.warning(f"Could not read from database: {e}")
+
+        # Fallback to position manager (in-memory, current session only)
         if not self.position_mgr:
             return []
 
-        # Get closed positions from position manager (current session only)
         closed = self.position_mgr.get_closed_positions(limit=10)
 
         # Simplify format to avoid circular references
