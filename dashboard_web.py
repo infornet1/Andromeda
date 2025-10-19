@@ -19,6 +19,7 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 from src.persistence.trade_database import TradeDatabase
+from src.api.bingx_api import BingXAPI
 
 # Load environment
 load_dotenv('config/.env')
@@ -48,26 +49,49 @@ class DashboardDataProvider:
             self.trade_db = TradeDatabase()
             logger.info("✅ Trade database initialized for dashboard")
         except Exception as e:
-            logger.warning(f"⚠️ Could not initialize trade database: {e}")
+            logger.warning(f"⚠️ Trade database not available: {e}")
             self.trade_db = None
+
+        # Initialize BingX API for live positions
+        try:
+            self.bingx_api = BingXAPI(
+                api_key=os.getenv('BINGX_API_KEY'),
+                api_secret=os.getenv('BINGX_API_SECRET')
+            )
+            logger.info("✅ BingX API initialized for dashboard")
+        except Exception as e:
+            logger.warning(f"⚠️ BingX API not available: {e}")
+            self.bingx_api = None
 
     def get_bot_status(self) -> Dict:
         """Get current bot status"""
         try:
-            # Check if bot is running
+            # Check if bot is running by looking for the process
             import subprocess
             result = subprocess.run(
-                ['systemctl', 'is-active', 'adx-trading-bot.service'],
+                ['pgrep', '-f', 'live_trader.py'],
                 capture_output=True,
                 text=True
             )
-            is_running = result.stdout.strip() == 'active'
+            is_running = bool(result.stdout.strip())
 
-            # Get session info
+            # Also check if snapshot is recent (updated within last 30 seconds)
             if os.path.exists(self.snapshot_file):
                 with open(self.snapshot_file, 'r') as f:
                     snapshot = json.load(f)
                     last_update = snapshot.get('timestamp', 'N/A')
+
+                    # Check if snapshot is fresh
+                    if last_update != 'N/A':
+                        from datetime import datetime, timedelta
+                        try:
+                            snapshot_time = datetime.fromisoformat(last_update)
+                            time_diff = (datetime.now() - snapshot_time).total_seconds()
+                            # Consider running if snapshot updated within 30 seconds
+                            if time_diff < 30:
+                                is_running = True
+                        except:
+                            pass
             else:
                 last_update = 'N/A'
 
@@ -81,41 +105,100 @@ class DashboardDataProvider:
             return {'running': False, 'status': 'unknown', 'last_update': 'N/A'}
 
     def get_account_status(self) -> Dict:
-        """Get account balance and P&L"""
+        """Get account balance and P&L (from live BingX and bot)"""
         try:
-            if not os.path.exists(self.snapshot_file):
-                return self._get_default_account()
+            # Get bot-tracked account from snapshot
+            bot_account = {}
+            if os.path.exists(self.snapshot_file):
+                with open(self.snapshot_file, 'r') as f:
+                    snapshot = json.load(f)
+                    bot_account = snapshot.get('account', {})
 
-            with open(self.snapshot_file, 'r') as f:
-                snapshot = json.load(f)
-                account = snapshot.get('account', {})
+            # Get live BingX balance if available
+            live_balance = None
+            live_equity = None
+            live_unrealized = None
+            live_margin_used = None
+            live_available = None
 
+            try:
+                if self.bingx_api:
+                    bingx_balance = self.bingx_api.get_account_balance()
+                    live_equity = bingx_balance.get('total_equity', None)
+                    live_available = bingx_balance.get('available_margin', None)
+                    live_margin_used = bingx_balance.get('used_margin', None)
+                    live_unrealized = bingx_balance.get('unrealized_pnl', None)
+                    live_balance = live_equity
+            except Exception as e:
+                logger.debug(f"Could not fetch live balance: {e}")
+
+            # Prefer live data, fall back to bot data
             return {
-                'balance': account.get('balance', 100.0),
-                'equity': account.get('equity', 100.0),
-                'available': account.get('available', 100.0),
-                'margin_used': account.get('margin_used', 0.0),
-                'unrealized_pnl': account.get('unrealized_pnl', 0.0),
-                'total_pnl': account.get('total_pnl', 0.0),
-                'total_return_percent': account.get('total_return_percent', 0.0),
-                'peak_balance': account.get('peak_balance', 100.0),
-                'max_drawdown': account.get('max_drawdown', 0.0)
+                'balance': live_balance if live_balance is not None else bot_account.get('balance', 100.0),
+                'equity': live_equity if live_equity is not None else bot_account.get('equity', 100.0),
+                'available': live_available if live_available is not None else bot_account.get('available', 100.0),
+                'margin_used': live_margin_used if live_margin_used is not None else bot_account.get('margin_used', 0.0),
+                'unrealized_pnl': live_unrealized if live_unrealized is not None else bot_account.get('unrealized_pnl', 0.0),
+                'total_pnl': bot_account.get('total_pnl', 0.0),
+                'total_return_percent': bot_account.get('total_return_percent', 0.0),
+                'peak_balance': bot_account.get('peak_balance', 100.0),
+                'max_drawdown': bot_account.get('max_drawdown', 0.0),
+                'data_source': 'LIVE_BINGX' if live_balance is not None else 'BOT_SNAPSHOT'
             }
         except Exception as e:
             logger.error(f"Error getting account status: {e}")
             return self._get_default_account()
 
-    def get_positions(self) -> List[Dict]:
-        """Get open positions"""
+    def get_live_bingx_positions(self) -> List[Dict]:
+        """Get actual positions from BingX exchange"""
         try:
-            if not os.path.exists(self.snapshot_file):
+            if not self.bingx_api:
                 return []
 
-            with open(self.snapshot_file, 'r') as f:
-                snapshot = json.load(f)
-                positions = snapshot.get('positions', [])
+            positions = self.bingx_api.get_positions("BTC-USDT")
 
-            return positions
+            # Format for dashboard
+            formatted = []
+            for pos in positions:
+                formatted.append({
+                    'id': f"BINGX_{pos['side']}",
+                    'side': pos['side'],
+                    'symbol': pos['symbol'],
+                    'entry_price': pos['entry_price'],
+                    'current_price': pos['mark_price'],
+                    'quantity': abs(pos['quantity']),
+                    'pnl': pos['unrealized_pnl'],
+                    'pnl_percent': (pos['unrealized_pnl'] / (pos['entry_price'] * abs(pos['quantity']))) * 100 if pos['quantity'] != 0 else 0,
+                    'leverage': pos['leverage'],
+                    'source': 'LIVE_EXCHANGE',
+                    'margin_required': (pos['entry_price'] * abs(pos['quantity'])) / pos['leverage']
+                })
+
+            return formatted
+        except Exception as e:
+            logger.error(f"Error getting live BingX positions: {e}")
+            return []
+
+    def get_positions(self) -> List[Dict]:
+        """Get open positions (both bot-tracked and live exchange)"""
+        try:
+            bot_positions = []
+
+            # Get bot-tracked positions from snapshot
+            if os.path.exists(self.snapshot_file):
+                with open(self.snapshot_file, 'r') as f:
+                    snapshot = json.load(f)
+                    bot_positions = snapshot.get('positions', [])
+                    for pos in bot_positions:
+                        pos['source'] = 'BOT_TRACKED'
+
+            # Get live BingX positions
+            live_positions = self.get_live_bingx_positions()
+
+            # Combine both (live positions first for visibility)
+            all_positions = live_positions + bot_positions
+
+            return all_positions
         except Exception as e:
             logger.error(f"Error getting positions: {e}")
             return []

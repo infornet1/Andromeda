@@ -500,17 +500,21 @@ class LiveTradingBot:
             signal['stop_loss']
         )
 
-        # Execute via paper trader
+        # Execute via trader (live or paper)
         result = self.trader.execute_signal(signal, current_price, position_size)
 
         if result:
-            # Send alert
-            self.alerts.position_opened(
-                result['position']['position_id'],
-                signal['side'],
-                current_price,
-                position_size['position_size_btc']
-            )
+            # Get position ID from result (structure differs between live/paper trader)
+            position_id = result.get('position_id') or result.get('position', {}).get('position_id')
+
+            if position_id:
+                # Send alert
+                self.alerts.position_opened(
+                    position_id,
+                    signal['side'],
+                    current_price,
+                    position_size['position_size_btc']
+                )
             logger.info(f"  ✅ Signal executed successfully")
 
             # Send email notification
@@ -606,12 +610,17 @@ class LiveTradingBot:
         logger.info("="*80)
 
         # Close any open positions
-        open_positions = self.position_mgr.get_open_positions()
-        if open_positions:
-            logger.info(f"Closing {len(open_positions)} open positions...")
-            current_price = self._fetch_current_price()
-            for pos in open_positions:
-                self.trader.close_position(pos['position_id'], current_price, 'SHUTDOWN')
+        if hasattr(self, 'position_mgr') and self.position_mgr:
+            open_positions = self.position_mgr.get_open_positions()
+            if open_positions:
+                logger.info(f"Closing {len(open_positions)} open positions...")
+                current_price = self._fetch_current_price()
+                for pos in open_positions:
+                    try:
+                        if hasattr(self.trader, '_close_position_on_exchange'):
+                            self.trader._close_position_on_exchange(pos, current_price, 'SHUTDOWN')
+                    except Exception as e:
+                        logger.warning(f"Failed to close position: {e}")
 
         # Generate final reports
         logger.info("\n" + "="*80)
@@ -619,7 +628,10 @@ class LiveTradingBot:
         logger.info("="*80)
 
         print(self.perf_tracker.generate_performance_report())
-        print(self.trader.get_paper_trading_summary())
+
+        # Paper trading summary (only if paper mode)
+        if hasattr(self.trader, 'get_paper_trading_summary'):
+            print(self.trader.get_paper_trading_summary())
 
         # Session summary
         if self.start_time:
@@ -631,8 +643,11 @@ class LiveTradingBot:
             logger.info("="*80)
             logger.info(f"Session Duration: {hours:.2f} hours")
             logger.info(f"Signals Checked: {iteration if 'iteration' in locals() else 'N/A'}")
-            logger.info(f"Trades Executed: {self.trader.get_performance_stats()['total_trades']}")
-            logger.info(f"Final Balance: ${self.trader.balance:.2f}")
+            # Get trade count
+            if hasattr(self.trader, 'get_performance_stats'):
+                stats = self.trader.get_performance_stats()
+                logger.info(f"Trades Executed: {stats.get('total_trades', 0)}")
+                logger.info(f"Final Balance: ${self.trader.balance:.2f}")
             logger.info("="*80)
 
         # Save final snapshot

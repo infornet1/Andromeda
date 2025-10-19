@@ -15,7 +15,7 @@
   "adx_threshold": 25,
   "adx_slope_min": 0.5,
   "di_spread_min": 5.0,
-  "min_confidence": 0.6,
+  "min_confidence": 0.55,
 
   "enable_short_bias": true,
   "short_bias_multiplier": 1.5,

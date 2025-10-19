@@ -70,9 +70,12 @@ async function fetchStatus() {
 
         // Update account stats
         const account = data.account;
+        // Use initial capital from config or default to 160
+        const INITIAL_CAPITAL = 160.0;
         document.getElementById('balance').textContent = formatCurrency(account.balance);
-        document.getElementById('balanceChange').textContent = formatCurrency(account.balance - 100);
-        setColorClass('balanceChange', account.balance - 100);
+        const balanceChange = account.balance - INITIAL_CAPITAL;
+        document.getElementById('balanceChange').textContent = formatCurrency(balanceChange);
+        setColorClass('balanceChange', balanceChange);
 
         document.getElementById('totalPnl').textContent = formatCurrency(account.total_pnl);
         document.getElementById('pnlPercent').textContent = formatPercent(account.total_return_percent);

@@ -362,7 +362,8 @@ class BingXAPI:
 
     def place_market_order(self, symbol: str, side: str, quantity: float,
                           stop_loss: Optional[float] = None,
-                          take_profit: Optional[float] = None) -> Dict:
+                          take_profit: Optional[float] = None,
+                          position_side: Optional[str] = None) -> Dict:
         """
         Place market order
 
@@ -372,6 +373,7 @@ class BingXAPI:
             quantity: Order quantity
             stop_loss: Stop loss price (optional)
             take_profit: Take profit price (optional)
+            position_side: Position side for hedge mode (LONG or SHORT, optional)
 
         Returns:
             Order information
@@ -384,6 +386,10 @@ class BingXAPI:
             'type': 'MARKET',
             'quantity': quantity
         }
+
+        # Add position side for hedge mode
+        if position_side:
+            params['positionSide'] = position_side.upper()
 
         if stop_loss:
             params['stopLoss'] = stop_loss

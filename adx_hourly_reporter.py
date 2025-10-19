@@ -258,6 +258,11 @@ Time Ago      Price           ADX     +DI     -DI   Spread   Trend
             pnl = equity - paper_trader.initial_balance
             pnl_pct = (pnl / paper_trader.initial_balance) * 100
 
+            # Handle zero trades case
+            profit_factor = stats.get('profit_factor', 0.0)
+            win_rate = stats.get('win_rate', 0.0) * 100
+            total_trades = stats.get('total_trades', 0)
+
             report += f"""
 {'='*80}
 💰 TRADING ACCOUNT STATUS
@@ -267,9 +272,9 @@ Equity:              ${equity:.2f}
 Total P&L:           ${pnl:+.2f} ({pnl_pct:+.2f}%)
 Open Positions:      {len(position_manager.get_open_positions()) if position_manager else 0}
 
-Total Trades:        {stats['total_trades']}
-Win Rate:            {stats['win_rate']*100:.1f}%
-Profit Factor:       {stats['profit_factor']:.2f}
+Total Trades:        {total_trades}
+Win Rate:            {win_rate:.1f}%
+Profit Factor:       {profit_factor:.2f}
 """
 
         # Forecast
