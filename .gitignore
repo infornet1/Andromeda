@@ -9,6 +9,8 @@ config/.env.*
 # Database files
 data/*.db
 data/*.db-journal
+*.db
+*.db-journal
 
 # Log files
 logs/*.log
@@ -43,3 +45,13 @@ Thumbs.db
 # Trading data
 data/trades_paper_backup_*.db
 email_config.json
+
+# Test and debug scripts
+check_bingx_account.py
+debug_signals.py
+place_sl_tp.py
+place_stop_loss.py
+test_dashboard_api.py
+test_dashboard_status.py
+test_*.py
+debug_*.py
