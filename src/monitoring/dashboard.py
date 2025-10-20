@@ -324,9 +324,15 @@ Update Count: {snapshot['system']['update_count']}
             for trade in trades:
                 pnl_sign = '+' if trade['pnl'] >= 0 else ''
                 emoji = '✅' if trade['pnl'] > 0 else '❌'
+                # Format timestamp with date and time
+                from datetime import datetime
+                closed_time = trade['closed_at']
+                if isinstance(closed_time, str):
+                    closed_time = datetime.fromisoformat(closed_time)
+                time_str = closed_time.strftime('%Y-%m-%d %H:%M:%S')
                 output += f"""│ {emoji} {trade['id']:<25} {trade['side']:<5} {pnl_sign}${abs(trade['pnl']):>8,.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%)
 │    Entry: ${trade['entry_price']:>10,.2f} → Exit: ${trade['exit_price']:>10,.2f}  Reason: {trade['exit_reason']}
-│    Hold: {trade['hold_duration']:.1f}m  Closed: {trade['closed_at'].strftime('%H:%M:%S')}
+│    Hold: {trade['hold_duration']:.1f}m  Closed: {time_str}
 │ {'─'*76}
 """
         else:

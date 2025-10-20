@@ -198,7 +198,7 @@ async function fetchTrades() {
             return;
         }
 
-        container.innerHTML = data.trades.reverse().map(trade => `
+        container.innerHTML = data.trades.map(trade => `
             <div class="trade-item ${trade.pnl > 0 ? 'win' : 'loss'}">
                 <div class="trade-header">
                     <span class="trade-side">${trade.side}</span>
@@ -213,6 +213,9 @@ async function fetchTrades() {
                 <div class="trade-details">
                     <span>${formatHoldTime(trade.hold_duration * 3600)}</span>
                     <span>${formatPercent(trade.pnl_percent)}</span>
+                </div>
+                <div class="trade-timestamp">
+                    ${formatTimestamp(trade.closed_at)}
                 </div>
             </div>
         `).join('');
@@ -303,6 +306,44 @@ function formatHoldTime(seconds) {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}m`;
+}
+
+// Utility: Format timestamp
+function formatTimestamp(timestamp) {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    const now = new Date();
+
+    // If today, show time only
+    if (date.toDateString() === now.toDateString()) {
+        return '🕐 Today ' + date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+    }
+
+    // If yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+        return '🕐 Yesterday ' + date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+    }
+
+    // Otherwise show full date and time
+    return '🕐 ' + date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
+    }) + ' ' + date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
 }
 
 // Utility: Set color class based on value
