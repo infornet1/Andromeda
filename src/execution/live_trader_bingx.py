@@ -169,6 +169,79 @@ class LiveTraderBingX:
         except Exception as e:
             logger.error(f"❌ Position reconciliation failed: {e}")
 
+    def _reconcile_and_close_stale_positions(self, current_price: float) -> List[Dict]:
+        """
+        Check BingX exchange for actual positions and close any stale bot positions
+        that no longer exist on the exchange.
+
+        This handles cases where:
+        - Position was closed on exchange (SL/TP hit) but bot didn't detect it
+        - Bot was offline when position closed
+        - Position was manually closed on exchange
+
+        Args:
+            current_price: Current market price for P&L calculation
+
+        Returns:
+            List of positions that were reconciled and closed
+        """
+        if not self.position_manager:
+            return []
+
+        closed_positions = []
+
+        try:
+            # Get actual positions from BingX exchange
+            exchange_positions = self.api.get_positions(self.symbol)
+
+            # Create set of active position IDs on exchange (by side)
+            exchange_position_sides = set()
+            for pos in exchange_positions:
+                if float(pos.get('quantity', 0)) != 0:
+                    exchange_position_sides.add(pos['side'])  # 'LONG' or 'SHORT'
+
+            # Check each bot-tracked position
+            bot_positions = list(self.position_manager.open_positions.values())
+
+            for bot_pos in bot_positions:
+                bot_side = bot_pos['side']
+
+                # If position doesn't exist on exchange, it was closed
+                if bot_side not in exchange_position_sides:
+                    logger.warning(f"⚠️  RECONCILIATION: Position {bot_pos['position_id']} "
+                                 f"({bot_side}) not found on BingX")
+                    logger.info(f"   Position was likely closed on exchange (SL/TP hit)")
+                    logger.info(f"   Closing in bot: Entry ${bot_pos['entry_price']:.2f}, "
+                              f"Current ${current_price:.2f}")
+
+                    # Close position in bot's tracking
+                    closed_pos = self.position_manager.close_position(
+                        bot_pos['position_id'],
+                        current_price,
+                        exit_reason='EXCHANGE_CLOSED_RECONCILIATION'
+                    )
+
+                    if closed_pos:
+                        closed_positions.append(closed_pos)
+
+                        # Update balance
+                        self.balance = self._fetch_real_balance()
+
+                        # Save to database
+                        if self.trade_db:
+                            try:
+                                self.trade_db.save_trade(closed_pos)
+                                logger.info(f"   💾 Reconciled trade saved to database")
+                            except Exception as e:
+                                logger.warning(f"   ⚠️  Could not save reconciled trade: {e}")
+
+                        logger.info(f"   ✅ Position reconciled and closed (P&L: ${closed_pos.get('pnl', 0):.2f})")
+
+        except Exception as e:
+            logger.error(f"❌ Position reconciliation error: {e}", exc_info=True)
+
+        return closed_positions
+
     def execute_signal(self,
                       signal: Dict,
                       current_price: float,
@@ -389,6 +462,11 @@ class LiveTraderBingX:
             return []
 
         closed_positions = []
+
+        # FIRST: Reconcile with exchange to close any stale positions
+        reconciled_positions = self._reconcile_and_close_stale_positions(current_price)
+        if reconciled_positions:
+            closed_positions.extend(reconciled_positions)
 
         # Check each open position
         for position_id in list(self.position_manager.open_positions.keys()):

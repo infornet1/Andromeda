@@ -331,6 +331,38 @@ tail -f logs/live_trading.log
 
 ## 🐛 Bug Fix History
 
+### 2025-10-21: BingX Position Synchronization Issue (RESOLVED)
+
+**Issue:** Dashboard showing stale positions that don't exist on BingX exchange
+**Symptom:** Bot tracked 1 SHORT position with $22.79 unrealized PnL, but BingX had 0 positions
+**Location:** Dashboard data source and position monitoring
+**Impact:** Incorrect risk assessment and misleading P&L calculations
+
+**Root Cause:**
+- Positions closed on BingX (SL/TP hit) but bot's in-memory position_manager not updated
+- No active reconciliation between bot-tracked and exchange positions
+- Snapshot file retained stale position data
+- Dashboard displayed outdated information
+
+**Fix Applied:**
+- Added `_reconcile_and_close_stale_positions()` method in `live_trader_bingx.py`
+- Integrated reconciliation into `monitor_positions()` - runs every monitoring cycle
+- Queries BingX API to verify actual open positions
+- Automatically closes positions in bot that don't exist on exchange
+- Updates balance from exchange and saves reconciled trades to database
+
+**Evidence:**
+```
+Before: Bot snapshot showed 1 position, BingX had 0
+After:  Bot snapshot shows 0 positions, matches BingX ✅
+```
+
+**Result:** ✅ Dashboard now 100% synchronized with BingX exchange state
+
+**See:** `POSITION_SYNC_FIX_2025-10-21.md` for complete analysis
+
+---
+
 ### 2025-10-17: Critical Timestamp Handling Bug (RESOLVED)
 
 **Issue:** First valid signal (ADX 25.05, LONG) generated but crashed during filtering
@@ -379,7 +411,8 @@ Oct 17 03:52:40 - ERROR: 'numpy.int64' object has no attribute 'total_seconds'
 
 **Key Files:**
 - `LIVE_TRADING_STATUS.md` - **Current session status** ⭐
-- `BUGFIX_2025-10-17.md` - **Critical bug fix analysis** 🐛 NEW!
+- `POSITION_SYNC_FIX_2025-10-21.md` - **Position synchronization fix** 🔄 NEW!
+- `BUGFIX_2025-10-17.md` - **Critical bug fix analysis** 🐛
 - `EMAIL_NOTIFICATIONS.md` - **Email system guide** 📧
 - `PHASE_8_READY.md` - How to start paper trading
 - `PHASE_*_COMPLETE.md` - Each phase summary

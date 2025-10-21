@@ -406,7 +406,54 @@ class LiveTradingBot:
 
     def _update_positions(self, current_price: float):
         """Update open positions with current price"""
+        # First, reconcile positions with BingX exchange
+        self._reconcile_positions_with_bingx()
+
+        # Then update positions with current price
         self.trader.monitor_positions(current_price)
+
+    def _reconcile_positions_with_bingx(self):
+        """
+        Reconcile bot-tracked positions with actual BingX positions
+        Closes any positions in bot memory that don't exist on exchange
+        """
+        if not self.api or self.mode != 'live':
+            return  # Only reconcile in live mode with API access
+
+        try:
+            # Get actual positions from BingX
+            bingx_positions = self.api.get_positions(self.config.get('symbol', 'BTC-USDT'))
+            bingx_position_ids = set()
+
+            # Create lookup of BingX positions by side
+            for pos in bingx_positions:
+                side = pos['side']
+                bingx_position_ids.add(f"{pos['symbol']}_{side}")
+
+            # Get bot-tracked positions
+            bot_positions = self.position_mgr.get_open_positions()
+
+            # Check each bot position against BingX
+            for bot_pos in bot_positions:
+                bot_id = f"{bot_pos['symbol']}_{bot_pos['side']}"
+
+                # If position doesn't exist on BingX, close it in bot
+                if bot_id not in bingx_position_ids:
+                    logger.warning(f"⚠️  Position {bot_pos['position_id']} not found on BingX - reconciling")
+                    logger.info(f"   Closing stale position: {bot_pos['side']} @ ${bot_pos['entry_price']:.2f}")
+
+                    # Close position in bot memory
+                    current_price = self._fetch_current_price()
+                    self.position_mgr.close_position(
+                        bot_pos['position_id'],
+                        current_price,
+                        exit_reason='EXCHANGE_CLOSED_RECONCILIATION'
+                    )
+
+                    logger.info(f"   ✅ Position reconciled and closed in bot")
+
+        except Exception as e:
+            logger.error(f"Error during position reconciliation: {e}", exc_info=True)
 
     def _should_check_signals(self) -> bool:
         """Check if it's time to look for new signals"""
@@ -669,6 +716,8 @@ if __name__ == "__main__":
                        help='Configuration file path')
     parser.add_argument('--duration', type=int, default=48,
                        help='Trading duration in hours')
+    parser.add_argument('--skip-confirmation', action='store_true',
+                       help='Skip live trading confirmation (for systemd service)')
 
     args = parser.parse_args()
 
@@ -690,11 +739,15 @@ if __name__ == "__main__":
         print("  3. Will monitor the bot closely")
         print("  4. Have tested with paper trading first")
         print("="*80)
-        confirmation = input("Type 'START LIVE TRADING' to proceed: ")
 
-        if confirmation != 'START LIVE TRADING':
-            print("❌ Live trading cancelled")
-            sys.exit(0)
+        if not args.skip_confirmation:
+            confirmation = input("Type 'START LIVE TRADING' to proceed: ")
+
+            if confirmation != 'START LIVE TRADING':
+                print("❌ Live trading cancelled")
+                sys.exit(0)
+        else:
+            print("⚠️  Confirmation skipped (running as service)")
 
         print("\n✅ Starting live trading...")
         time.sleep(2)
