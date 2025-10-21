@@ -318,6 +318,28 @@ class LiveTraderBingX:
 
             logger.info(f"✅ Order filled: {filled_qty:.5f} BTC @ ${filled_price:,.2f}")
 
+            # Recalculate SL/TP based on ACTUAL FILL PRICE (not signal price)
+            # This is critical to prevent TP below entry or SL above entry
+            atr = signal.get('atr', 0)
+            if atr > 0:
+                if side == 'LONG':
+                    # For LONG: SL below entry, TP above entry
+                    stop_loss_recalc = filled_price - (atr * 2.0)  # 2x ATR below
+                    take_profit_recalc = filled_price + (atr * 4.0)  # 4x ATR above
+                else:  # SHORT
+                    # For SHORT: SL above entry, TP below entry
+                    stop_loss_recalc = filled_price + (atr * 2.0)  # 2x ATR above
+                    take_profit_recalc = filled_price - (atr * 4.0)  # 4x ATR below
+
+                logger.info(f"🔧 Recalculated SL/TP based on fill price ${filled_price:,.2f}")
+                logger.info(f"   Original: SL=${stop_loss:,.2f}, TP=${take_profit:,.2f}")
+                logger.info(f"   Updated:  SL=${stop_loss_recalc:,.2f}, TP=${take_profit_recalc:,.2f}")
+
+                stop_loss = stop_loss_recalc
+                take_profit = take_profit_recalc
+            else:
+                logger.warning(f"⚠️  No ATR data, using signal SL/TP (may be inaccurate)")
+
             # Place Stop Loss and Take Profit orders
             logger.info(f"🛡️ Placing protective orders...")
             self._place_protective_orders(side, filled_qty, stop_loss, take_profit)

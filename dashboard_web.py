@@ -52,16 +52,48 @@ class DashboardDataProvider:
             logger.warning(f"⚠️ Trade database not available: {e}")
             self.trade_db = None
 
-        # Initialize BingX API for live positions
-        try:
-            self.bingx_api = BingXAPI(
-                api_key=os.getenv('BINGX_API_KEY'),
-                api_secret=os.getenv('BINGX_API_SECRET')
-            )
-            logger.info("✅ BingX API initialized for dashboard")
-        except Exception as e:
-            logger.warning(f"⚠️ BingX API not available: {e}")
+        # Detect if bot is in paper or live mode
+        self.is_paper_mode = self._detect_paper_mode()
+
+        # Initialize BingX API only for LIVE mode
+        if not self.is_paper_mode:
+            try:
+                self.bingx_api = BingXAPI(
+                    api_key=os.getenv('BINGX_API_KEY'),
+                    api_secret=os.getenv('BINGX_API_SECRET')
+                )
+                logger.info("✅ BingX API initialized for dashboard (LIVE MODE)")
+            except Exception as e:
+                logger.warning(f"⚠️ BingX API not available: {e}")
+                self.bingx_api = None
+        else:
             self.bingx_api = None
+            logger.info("📄 Dashboard in PAPER MODE - BingX API disabled")
+
+    def _detect_paper_mode(self) -> bool:
+        """Detect if bot is running in paper or live mode"""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['ps', 'aux'],
+                capture_output=True,
+                text=True
+            )
+            # Check if live_trader.py is running with --mode paper
+            for line in result.stdout.split('\n'):
+                if 'live_trader.py' in line and '--mode paper' in line:
+                    logger.info("🔍 Detected bot running in PAPER MODE")
+                    return True
+                elif 'live_trader.py' in line and '--mode live' in line:
+                    logger.info("🔍 Detected bot running in LIVE MODE")
+                    return False
+
+            # Default to paper mode if uncertain
+            logger.warning("⚠️ Could not detect mode, defaulting to PAPER MODE")
+            return True
+        except Exception as e:
+            logger.error(f"Error detecting mode: {e}, defaulting to PAPER MODE")
+            return True
 
     def get_bot_status(self) -> Dict:
         """Get current bot status"""
@@ -105,7 +137,7 @@ class DashboardDataProvider:
             return {'running': False, 'status': 'unknown', 'last_update': 'N/A'}
 
     def get_account_status(self) -> Dict:
-        """Get account balance and P&L (from live BingX and bot)"""
+        """Get account balance and P&L (from live BingX or paper trading bot)"""
         try:
             # Get bot-tracked account from snapshot
             bot_account = {}
@@ -114,7 +146,23 @@ class DashboardDataProvider:
                     snapshot = json.load(f)
                     bot_account = snapshot.get('account', {})
 
-            # Get live BingX balance if available
+            # In PAPER MODE: Use only bot snapshot data
+            if self.is_paper_mode:
+                return {
+                    'balance': bot_account.get('balance', 100.0),
+                    'equity': bot_account.get('equity', 100.0),
+                    'available': bot_account.get('available', 100.0),
+                    'margin_used': bot_account.get('margin_used', 0.0),
+                    'unrealized_pnl': bot_account.get('unrealized_pnl', 0.0),
+                    'total_pnl': bot_account.get('total_pnl', 0.0),
+                    'total_return_percent': bot_account.get('total_return_percent', 0.0),
+                    'peak_balance': bot_account.get('peak_balance', 100.0),
+                    'max_drawdown': bot_account.get('max_drawdown', 0.0),
+                    'data_source': 'PAPER_TRADING',
+                    'trading_mode': 'PAPER'
+                }
+
+            # In LIVE MODE: Get live BingX balance if available
             live_balance = None
             live_equity = None
             live_unrealized = None
@@ -143,7 +191,8 @@ class DashboardDataProvider:
                 'total_return_percent': bot_account.get('total_return_percent', 0.0),
                 'peak_balance': bot_account.get('peak_balance', 100.0),
                 'max_drawdown': bot_account.get('max_drawdown', 0.0),
-                'data_source': 'LIVE_BINGX' if live_balance is not None else 'BOT_SNAPSHOT'
+                'data_source': 'LIVE_BINGX' if live_balance is not None else 'BOT_SNAPSHOT',
+                'trading_mode': 'LIVE'
             }
         except Exception as e:
             logger.error(f"Error getting account status: {e}")
@@ -180,7 +229,7 @@ class DashboardDataProvider:
             return []
 
     def get_positions(self) -> List[Dict]:
-        """Get open positions (both bot-tracked and live exchange)"""
+        """Get open positions (from paper trading or live exchange)"""
         try:
             bot_positions = []
 
@@ -190,9 +239,13 @@ class DashboardDataProvider:
                     snapshot = json.load(f)
                     bot_positions = snapshot.get('positions', [])
                     for pos in bot_positions:
-                        pos['source'] = 'BOT_TRACKED'
+                        pos['source'] = 'PAPER_TRADING' if self.is_paper_mode else 'BOT_TRACKED'
 
-            # Get live BingX positions
+            # In PAPER MODE: Return only bot positions
+            if self.is_paper_mode:
+                return bot_positions
+
+            # In LIVE MODE: Get live BingX positions
             live_positions = self.get_live_bingx_positions()
 
             # Combine both (live positions first for visibility)

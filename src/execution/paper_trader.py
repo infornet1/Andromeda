@@ -158,6 +158,27 @@ class PaperTrader:
                 metadata={'signal_id': signal.get('signal_id'), 'confidence': signal.get('confidence')}
             )
 
+        # Recalculate SL/TP based on ACTUAL ENTRY PRICE (with slippage applied)
+        # This is critical to prevent TP below entry or SL above entry
+        atr = signal.get('atr', 0)
+        if atr > 0:
+            if side == 'LONG':
+                # For LONG: SL below entry, TP above entry
+                stop_loss = entry_price - (atr * 2.0)  # 2x ATR below
+                take_profit = entry_price + (atr * 4.0)  # 4x ATR above
+            else:  # SHORT
+                # For SHORT: SL above entry, TP below entry
+                stop_loss = entry_price + (atr * 2.0)  # 2x ATR above
+                take_profit = entry_price - (atr * 4.0)  # 4x ATR below
+
+            logger.info(f"🔧 SL/TP recalculated based on entry ${entry_price:,.2f}")
+            logger.info(f"   SL: ${stop_loss:,.2f} | TP: ${take_profit:,.2f}")
+        else:
+            # Fallback to signal SL/TP if no ATR
+            stop_loss = signal['stop_loss']
+            take_profit = signal['take_profit']
+            logger.warning(f"⚠️  No ATR data, using signal SL/TP")
+
         # Open position via position manager
         position = None
         if self.position_manager:
@@ -165,8 +186,8 @@ class PaperTrader:
                 side=side,
                 entry_price=entry_price,
                 quantity=position_size_data['position_size_btc'],
-                stop_loss=signal['stop_loss'],
-                take_profit=signal['take_profit'],
+                stop_loss=stop_loss,
+                take_profit=take_profit,
                 leverage=self.leverage,
                 margin_required=margin_required,
                 signal_data=signal,
