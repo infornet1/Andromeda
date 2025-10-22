@@ -230,8 +230,10 @@ class LiveTraderBingX:
                         # Save to database
                         if self.trade_db:
                             try:
+                                # Mark as live trading
+                                closed_pos['trading_mode'] = 'live'
                                 self.trade_db.save_trade(closed_pos)
-                                logger.info(f"   💾 Reconciled trade saved to database")
+                                logger.info(f"   💾 Reconciled trade saved to database (mode: live)")
                             except Exception as e:
                                 logger.warning(f"   ⚠️  Could not save reconciled trade: {e}")
 
@@ -515,8 +517,10 @@ class LiveTraderBingX:
                     # Save to database
                     if self.trade_db:
                         try:
+                            # Mark as live trading
+                            closed_pos['trading_mode'] = 'live'
                             self.trade_db.save_trade(closed_pos)
-                            logger.info(f"💾 Trade saved to database")
+                            logger.info(f"💾 Trade saved to database (mode: live)")
                         except Exception as e:
                             logger.warning(f"⚠️  Could not save trade: {e}")
 

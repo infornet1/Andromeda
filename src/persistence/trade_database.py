@@ -48,11 +48,19 @@ class TradeDatabase:
                 closed_at TEXT,
                 stop_loss REAL,
                 take_profit REAL,
+                trading_mode TEXT DEFAULT 'paper',
                 signal_data TEXT,
                 position_data TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # Add trading_mode column to existing tables (migration)
+        try:
+            cursor.execute("ALTER TABLE trades ADD COLUMN trading_mode TEXT DEFAULT 'paper'")
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
 
         # Performance snapshots table (for historical tracking)
         cursor.execute('''
@@ -91,6 +99,7 @@ class TradeDatabase:
             closed_at = trade.get('closed_at')
             stop_loss = trade.get('stop_loss') or trade.get('position', {}).get('stop_loss')
             take_profit = trade.get('take_profit') or trade.get('position', {}).get('take_profit')
+            trading_mode = trade.get('trading_mode', 'paper')  # Default to paper for safety
 
             # Serialize complex objects
             signal_data = json.dumps(trade.get('signal', {})) if 'signal' in trade else None
@@ -112,12 +121,12 @@ class TradeDatabase:
                 INSERT OR REPLACE INTO trades (
                     id, timestamp, side, entry_price, exit_price, quantity,
                     pnl, pnl_percent, exit_reason, hold_duration, closed_at,
-                    stop_loss, take_profit, signal_data, position_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    stop_loss, take_profit, trading_mode, signal_data, position_data
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 trade_id, timestamp, side, entry_price, exit_price, quantity,
                 pnl, pnl_percent, exit_reason, hold_duration, closed_at,
-                stop_loss, take_profit, signal_data, position_data
+                stop_loss, take_profit, trading_mode, signal_data, position_data
             ))
 
             self.conn.commit()
@@ -127,24 +136,30 @@ class TradeDatabase:
             print(f"Error saving trade to database: {e}")
             return False
 
-    def get_all_trades(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get all trades from database, ordered by timestamp (newest first)"""
+    def get_all_trades(self, limit: Optional[int] = None, trading_mode: Optional[str] = None) -> List[Dict]:
+        """Get all trades from database, ordered by timestamp (newest first)
+
+        Args:
+            limit: Maximum number of trades to return
+            trading_mode: Filter by 'paper' or 'live' mode (None = all trades)
+        """
         cursor = self.conn.cursor()
 
-        if limit:
-            cursor.execute('''
-                SELECT * FROM trades
-                WHERE closed_at IS NOT NULL
-                ORDER BY closed_at DESC
-                LIMIT ?
-            ''', (limit,))
-        else:
-            cursor.execute('''
-                SELECT * FROM trades
-                WHERE closed_at IS NOT NULL
-                ORDER BY closed_at DESC
-            ''')
+        # Build query based on filters
+        query = 'SELECT * FROM trades WHERE closed_at IS NOT NULL'
+        params = []
 
+        if trading_mode:
+            query += ' AND trading_mode = ?'
+            params.append(trading_mode)
+
+        query += ' ORDER BY closed_at DESC'
+
+        if limit:
+            query += ' LIMIT ?'
+            params.append(limit)
+
+        cursor.execute(query, params)
         rows = cursor.fetchall()
 
         # Convert to list of dictionaries

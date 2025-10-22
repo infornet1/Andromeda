@@ -327,12 +327,17 @@ class DashboardDataProvider:
             logger.error(f"Error getting BTC price: {e}")
             return 107907.80
 
-    def get_trades(self, limit: int = 10) -> List[Dict]:
-        """Get recent trades from database"""
+    def get_trades(self, limit: int = 10, trading_mode: Optional[str] = None) -> List[Dict]:
+        """Get recent trades from database
+
+        Args:
+            limit: Maximum number of trades to return
+            trading_mode: Filter by 'paper' or 'live' mode (None = all trades)
+        """
         try:
             if self.trade_db:
-                # Get trades from database
-                trades = self.trade_db.get_all_trades(limit=limit)
+                # Get trades from database with filter
+                trades = self.trade_db.get_all_trades(limit=limit, trading_mode=trading_mode)
                 return trades
             else:
                 # Fallback to snapshot file
@@ -505,11 +510,31 @@ def api_adx():
 
 @app.route('/api/trades')
 def api_trades():
-    """Get recent trades"""
+    """Get recent trades with optional filtering
+
+    Query params:
+        - limit: Maximum number of trades to return (default: 10)
+        - mode: Filter by 'paper', 'live', or omit for all trades
+    """
     try:
         limit = int(request.args.get('limit', 10))
-        trades = data_provider.get_trades(limit=limit)
-        return jsonify({'trades': trades})
+        trading_mode = request.args.get('mode', None)  # 'paper', 'live', or None
+
+        # Validate trading_mode
+        if trading_mode and trading_mode not in ['paper', 'live']:
+            return jsonify({'error': 'Invalid mode. Use "paper" or "live"'}), 400
+
+        trades = data_provider.get_trades(limit=limit, trading_mode=trading_mode)
+
+        # Return with metadata
+        return jsonify({
+            'trades': trades,
+            'count': len(trades),
+            'filter': {
+                'limit': limit,
+                'mode': trading_mode or 'all'
+            }
+        })
     except Exception as e:
         logger.error(f"Error in /api/trades: {e}")
         return jsonify({'error': str(e)}), 500

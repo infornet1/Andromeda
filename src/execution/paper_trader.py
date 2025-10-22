@@ -317,8 +317,10 @@ class PaperTrader:
         # Save closed trade to database
         if self.trade_db:
             try:
+                # Mark as paper trading
+                closed_position['trading_mode'] = 'paper'
                 self.trade_db.save_trade(closed_position)
-                logger.info(f"💾 Trade saved to database: {position_id}")
+                logger.info(f"💾 Trade saved to database: {position_id} (mode: paper)")
             except Exception as e:
                 logger.warning(f"⚠️  Could not save trade to database: {e}")
 

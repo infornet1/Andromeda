@@ -185,16 +185,27 @@ async function fetchRisk() {
     }
 }
 
-// Fetch trade history
+// Fetch trade history with optional filter
 async function fetchTrades() {
     try {
-        const response = await fetch('/api/trades?limit=10');
+        // Get selected filter mode
+        const filterSelect = document.getElementById('tradeFilter');
+        const mode = filterSelect ? filterSelect.value : '';
+
+        // Build URL with filter
+        let url = '/api/trades?limit=10';
+        if (mode) {
+            url += `&mode=${mode}`;
+        }
+
+        const response = await fetch(url);
         const data = await response.json();
 
         const container = document.getElementById('tradesContainer');
 
         if (data.trades.length === 0) {
-            container.innerHTML = '<div class="empty-state">No trades yet</div>';
+            const filterText = mode ? ` (${mode} mode)` : '';
+            container.innerHTML = `<div class="empty-state">No trades yet${filterText}</div>`;
             return;
         }
 
@@ -202,6 +213,7 @@ async function fetchTrades() {
             <div class="trade-item ${trade.pnl > 0 ? 'win' : 'loss'}">
                 <div class="trade-header">
                     <span class="trade-side">${trade.side}</span>
+                    <span class="trade-mode-badge ${trade.trading_mode || 'paper'}">${(trade.trading_mode || 'paper').toUpperCase()}</span>
                     <span class="trade-pnl ${trade.pnl > 0 ? 'positive' : 'negative'}">
                         ${formatCurrency(trade.pnl)}
                     </span>
@@ -357,6 +369,12 @@ function setColorClass(id, value) {
     } else if (value < 0) {
         element.classList.add('negative');
     }
+}
+
+// Filter trades by mode (called by dropdown onchange)
+function filterTrades() {
+    console.log('🔄 Filtering trades...');
+    fetchTrades();
 }
 
 // Error handling for fetch

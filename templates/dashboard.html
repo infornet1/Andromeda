@@ -186,6 +186,11 @@
                 <div class="panel">
                     <div class="panel-header">
                         <h2>📋 Trade History</h2>
+                        <select id="tradeFilter" class="filter-dropdown" onchange="filterTrades()">
+                            <option value="">All Trades</option>
+                            <option value="paper" selected>Paper Trading</option>
+                            <option value="live">Live Trading</option>
+                        </select>
                     </div>
                     <div class="panel-body">
                         <div id="tradesContainer">
