@@ -1,8 +1,10 @@
 # ADX Strategy v2.0 - Web Dashboard Setup
 
 **Created**: 2025-10-17
+**Updated**: 2025-10-24
 **Status**: ✅ OPERATIONAL
-**Port**: 5900
+**External Port**: 5900 (HTTPS via nginx)
+**Internal Port**: 5901 (HTTP Flask app)
 **Service**: adx-dashboard.service
 
 ---
@@ -13,18 +15,20 @@ Real-time web dashboard for monitoring ADX Strategy v2.0 paper/live trading bot.
 
 ## Access
 
-- **Local**: http://localhost:5900
-- **External**: http://64.23.157.121:5900
-- **Health Check**: http://localhost:5900/health
+- **Primary URL**: https://dev.ueipab.edu.ve:5900/
+- **Health Check**: https://dev.ueipab.edu.ve:5900/health
+- **Alternative Path**: https://dev.ueipab.edu.ve/trading/ (also works)
+- **Local (direct)**: http://localhost:5901
 
 ## Architecture
 
 ### Components
 
-1. **Backend**: Flask web server (`dashboard_web.py`)
-2. **Frontend**: HTML/CSS/JavaScript with auto-refresh
-3. **Data Source**: Reads from `logs/final_snapshot.json` + live BingX API
-4. **Service**: Systemd service for auto-start and monitoring
+1. **Nginx**: SSL termination and reverse proxy (port 5900 HTTPS)
+2. **Backend**: Flask web server (`dashboard_web.py`) on port 5901 HTTP
+3. **Frontend**: HTML/CSS/JavaScript with auto-refresh
+4. **Data Source**: Reads from `logs/final_snapshot.json` + live BingX API
+5. **Service**: Systemd service for auto-start and monitoring
 
 ### File Structure
 

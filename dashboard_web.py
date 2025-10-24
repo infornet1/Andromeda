@@ -572,15 +572,10 @@ if __name__ == '__main__':
     logger.info("="*80)
     logger.info("🚀 ADX STRATEGY v2.0 - DASHBOARD SERVER")
     logger.info("="*80)
-    logger.info("📊 Dashboard URL: https://dev.ueipab.edu.ve:5900")
-    logger.info("📊 Local Access: http://localhost:5900")
+    logger.info("📊 Dashboard URL: https://dev.ueipab.edu.ve:5900/")
+    logger.info("📊 Local Access: http://localhost:5901")
     logger.info("⌨️  Press Ctrl+C to stop")
     logger.info("="*80)
 
-    # SSL certificate paths (using existing Let's Encrypt certificates)
-    ssl_cert = '/etc/letsencrypt/live/dev.ueipab.edu.ve/fullchain.pem'
-    ssl_key = '/etc/letsencrypt/live/dev.ueipab.edu.ve/privkey.pem'
-
-    # Run Flask app with SSL
-    app.run(host='0.0.0.0', port=5900, debug=False,
-            ssl_context=(ssl_cert, ssl_key))
+    # Run Flask app on HTTP port 5901 (nginx on 5900 handles SSL termination)
+    app.run(host='0.0.0.0', port=5901, debug=False)
