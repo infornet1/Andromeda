@@ -57,14 +57,16 @@ class PositionSizer:
     def calculate_position_size(self,
                                 entry_price: float,
                                 stop_loss: float,
-                                account_balance: Optional[float] = None) -> Dict:
+                                account_balance: Optional[float] = None,
+                                max_loss_percent: float = 2.0) -> Dict:
         """
-        Calculate position size based on risk parameters
+        Calculate position size based on risk parameters with HARD CAP on max loss
 
         Args:
             entry_price: Entry price
             stop_loss: Stop loss price
             account_balance: Current account balance (uses current_capital if None)
+            max_loss_percent: Maximum loss per trade as % of account (HARD CAP, default 2%)
 
         Returns:
             Dictionary with position sizing details
@@ -73,6 +75,10 @@ class PositionSizer:
 
         # Calculate risk amount in USDT
         risk_amount = balance * (self.risk_per_trade_percent / 100)
+
+        # CRITICAL FIX: Enforce absolute maximum loss cap (default 2%)
+        max_loss_amount = balance * (max_loss_percent / 100)
+        risk_amount = min(risk_amount, max_loss_amount)
 
         # Calculate stop distance
         stop_distance = abs(entry_price - stop_loss)
@@ -103,6 +109,17 @@ class PositionSizer:
         actual_risk_amount = (stop_distance_percent / 100) * position_size_notional
         actual_risk_percent = (actual_risk_amount / balance) * 100
 
+        # CRITICAL FIX: Double-check that actual risk doesn't exceed max loss cap
+        # If stop slips, this protects us from catastrophic losses
+        if actual_risk_amount > max_loss_amount:
+            scale_factor = max_loss_amount / actual_risk_amount
+            position_size_btc *= scale_factor
+            position_size_notional *= scale_factor
+            margin_required *= scale_factor
+            actual_risk_amount = max_loss_amount
+            actual_risk_percent = max_loss_percent
+            logger.warning(f"⚠️  Position size reduced by {(1-scale_factor)*100:.1f}% to enforce {max_loss_percent}% max loss cap")
+
         # Validate minimum position size
         if position_size_notional < self.min_position_size_usd:
             logger.warning(f"Position size ${position_size_notional:.2f} below minimum ${self.min_position_size_usd}")
@@ -115,6 +132,8 @@ class PositionSizer:
             'actual_risk_amount': round(actual_risk_amount, 2),
             'risk_percent': round(self.risk_per_trade_percent, 2),
             'actual_risk_percent': round(actual_risk_percent, 2),
+            'max_loss_cap': round(max_loss_percent, 2),
+            'max_loss_amount': round(max_loss_amount, 2),
             'stop_distance': round(stop_distance, 2),
             'stop_distance_percent': round(stop_distance_percent, 4),
             'leverage': self.leverage,
@@ -122,7 +141,7 @@ class PositionSizer:
             'is_valid': position_size_notional >= self.min_position_size_usd
         }
 
-        logger.debug(f"Position calculated: {result['position_size_btc']} BTC (${result['position_size_usd']})")
+        logger.debug(f"Position calculated: {result['position_size_btc']} BTC (${result['position_size_usd']}), Max Loss: {max_loss_percent}%")
 
         return result
 
