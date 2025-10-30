@@ -27,5 +27,10 @@
   "trailing_stop_activation": 0.5,
   "trailing_stop_distance": 0.3,
 
+  "dashboard_auth": {
+    "username": "admin",
+    "password_hash": "NEEDS_TO_BE_GENERATED"
+  },
+
   "comment": "ADX Strategy v2.0 - $160 Capital, $60 Max Loss (37.5%)"
 }
