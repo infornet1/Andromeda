@@ -91,7 +91,7 @@ class BingXAPI:
         return signature
 
     def _check_rate_limit(self):
-        """Check and enforce rate limiting"""
+        """Check and enforce rate limiting with enhanced protection"""
         current_time = time.time()
 
         # Reset counter every minute
@@ -99,16 +99,23 @@ class BingXAPI:
             self.request_count = 0
             self.rate_limit_reset = current_time + 60
 
+        # Warn at 80% threshold
+        if self.request_count >= (self.max_requests_per_minute * 0.8):
+            logger.warning(f"⚠️  Rate limit at 80%: {self.request_count}/{self.max_requests_per_minute} requests")
+
         # Check if limit exceeded
         if self.request_count >= self.max_requests_per_minute:
             wait_time = self.rate_limit_reset - current_time
             if wait_time > 0:
-                logger.warning(f"Rate limit reached. Waiting {wait_time:.1f}s")
+                # Add 1 second buffer to be safe
+                wait_time += 1.0
+                logger.warning(f"❌ Rate limit reached. Waiting {wait_time:.1f}s")
                 time.sleep(wait_time)
                 self.request_count = 0
                 self.rate_limit_reset = time.time() + 60
 
         self.request_count += 1
+        logger.debug(f"API Request {self.request_count}/{self.max_requests_per_minute} this minute")
 
     def _request(self, method: str, endpoint: str, params: Dict = None,
                  signed: bool = False) -> Dict:
