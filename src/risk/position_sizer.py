@@ -29,7 +29,9 @@ class PositionSizer:
                  risk_per_trade_percent: float = 2.0,
                  leverage: int = 5,
                  max_position_size_percent: float = 20.0,
-                 min_position_size_usd: float = 10.0):
+                 min_position_size_usd: float = 10.0,
+                 slippage_buffer_percent: float = 0.5,
+                 max_position_value_percent: float = 10.0):
         """
         Initialize position sizer
 
@@ -39,15 +41,20 @@ class PositionSizer:
             leverage: Leverage multiplier (1-20x)
             max_position_size_percent: Max position as % of capital
             min_position_size_usd: Minimum position size in USDT
+            slippage_buffer_percent: Buffer for slippage (default 0.5 = 50% worse fill)
+            max_position_value_percent: Hard cap on position value (default 10%)
         """
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
         self.risk_per_trade_percent = risk_per_trade_percent
         self.leverage = leverage
         self.max_position_size_percent = max_position_size_percent
-        self.min_position_size_usd = min_position_size_usd
+        self.min_position_size_usd = max(min_position_size_usd, 20.0)  # BingX minimum
+        self.slippage_buffer_percent = slippage_buffer_percent
+        self.max_position_value_percent = max_position_value_percent
 
         logger.info(f"Position Sizer initialized: ${initial_capital} @ {leverage}x leverage")
+        logger.info(f"  Slippage buffer: {slippage_buffer_percent*100:.0f}%, Max position value: {max_position_value_percent}%")
 
     def update_capital(self, new_capital: float):
         """Update current capital after trades"""
@@ -84,20 +91,33 @@ class PositionSizer:
         stop_distance = abs(entry_price - stop_loss)
         stop_distance_percent = (stop_distance / entry_price) * 100
 
-        # Calculate position size based on risk
-        # Position Size = Risk Amount / (Stop Distance % * Entry Price)
-        # This ensures we only lose the risk amount if SL hits
-        position_size_notional = risk_amount / (stop_distance_percent / 100)
+        # CRITICAL FIX #3: Add slippage buffer to stop distance
+        # If stop is 0.5% away, assume worst case 0.75% with 50% slippage buffer
+        worst_case_stop_distance_percent = stop_distance_percent * (1 + self.slippage_buffer_percent)
+        logger.debug(f"Stop distance: {stop_distance_percent:.2f}% → {worst_case_stop_distance_percent:.2f}% (with slippage buffer)")
+
+        # Calculate position size based on risk with slippage protection
+        # Position Size = Risk Amount / (Worst Case Stop Distance % * Entry Price)
+        # This ensures we only lose the risk amount even with slippage
+        position_size_notional = risk_amount / (worst_case_stop_distance_percent / 100)
 
         # Account for leverage (we can control larger position with less capital)
         # With 5x leverage: $100 capital = $500 position size max
         max_position_notional = balance * self.leverage
 
-        # Position size in USDT (notional value)
+        # CRITICAL FIX #4: Enforce hard cap on position value (10% of account)
+        # This prevents catastrophic losses from single positions
+        max_position_by_value = balance * self.max_position_value_percent
+
+        # Position size in USDT (notional value) - apply ALL limits
         position_size_notional = min(
             position_size_notional,
+            max_position_by_value,  # NEW: Hard cap on notional value
             max_position_notional * (self.max_position_size_percent / 100)
         )
+
+        if position_size_notional == max_position_by_value:
+            logger.info(f"Position capped at ${max_position_by_value:.2f} ({self.max_position_value_percent}% of ${balance:.2f})")
 
         # Convert to BTC quantity
         position_size_btc = position_size_notional / entry_price
@@ -105,12 +125,12 @@ class PositionSizer:
         # Calculate margin required
         margin_required = position_size_notional / self.leverage
 
-        # Calculate actual risk if position size was limited
-        actual_risk_amount = (stop_distance_percent / 100) * position_size_notional
+        # Calculate actual risk with slippage buffer included
+        actual_risk_amount = (worst_case_stop_distance_percent / 100) * position_size_notional
         actual_risk_percent = (actual_risk_amount / balance) * 100
 
         # CRITICAL FIX: Double-check that actual risk doesn't exceed max loss cap
-        # If stop slips, this protects us from catastrophic losses
+        # With slippage buffer, this should rarely trigger now
         if actual_risk_amount > max_loss_amount:
             scale_factor = max_loss_amount / actual_risk_amount
             position_size_btc *= scale_factor

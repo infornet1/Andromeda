@@ -1,11 +1,14 @@
 {
   "initial_capital": 160.0,
-  "leverage": 5,
+  "leverage": 3,
+  "comment_leverage": "CRITICAL FIX: Reduced from 5x to 3x to limit slippage impact",
   "risk_per_trade": 2.0,
   "daily_loss_limit": 5.0,
   "max_drawdown": 37.5,
-  "max_positions": 2,
+  "max_positions": 1,
+  "comment_max_positions": "Reduced to 1 until v2.2 improvements are validated",
   "consecutive_loss_limit": 3,
+  "comment_circuit_breaker": "CRITICAL FIX: Reduced from 10 to 3 to prevent runaway losses",
 
   "symbol": "BTC-USDT",
   "timeframe": "5m",
@@ -24,6 +27,13 @@
   "tp_atr_multiplier": 4.0,
 
   "comment_signal_quality_improvements": "=== NEW: Signal Quality Improvements (v2.2 - Nov 7, 2025) ===",
+
+  "position_sizing": {
+    "slippage_buffer_percent": 0.5,
+    "max_position_value_percent": 10.0,
+    "min_position_size_usd": 20.0,
+    "comment": "CRITICAL FIX: Slippage buffer prevents losses exceeding risk cap"
+  },
 
   "multi_timeframe": {
     "enabled": true,

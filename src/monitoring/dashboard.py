@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Real-time Monitoring Dashboard for ADX Strategy v2.0
+Real-time Monitoring Dashboard for Scalping Strategy v2.0
 Displays current positions, orders, balance, and risk status
 """
 
 import sys
 import os
-sys.path.insert(0, '/var/www/dev/trading/adx_strategy_v2')
+sys.path.insert(0, '/var/www/dev/trading/scalping_v2')
 
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -251,7 +251,7 @@ class Dashboard:
         # Header
         output = f"""
 {'='*80}
-{'ADX STRATEGY v2.0 - REAL-TIME DASHBOARD':^80}
+{'SCALPING STRATEGY v2.0 - REAL-TIME DASHBOARD':^80}
 {'='*80}
 Last Update: {snapshot['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}
 Update Count: {snapshot['system']['update_count']}
@@ -330,9 +330,19 @@ Update Count: {snapshot['system']['update_count']}
                 if isinstance(closed_time, str):
                     closed_time = datetime.fromisoformat(closed_time)
                 time_str = closed_time.strftime('%Y-%m-%d %H:%M:%S')
-                output += f"""│ {emoji} {trade['id']:<25} {trade['side']:<5} {pnl_sign}${abs(trade['pnl']):>8,.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%)
-│    Entry: ${trade['entry_price']:>10,.2f} → Exit: ${trade['exit_price']:>10,.2f}  Reason: {trade['exit_reason']}
-│    Hold: {trade['hold_duration']:.1f}m  Closed: {time_str}
+
+                # Handle None values safely
+                trade_id = str(trade.get('id') or 'N/A')
+                pnl = trade.get('pnl') or 0
+                pnl_percent = trade.get('pnl_percent') or 0
+                entry_price = trade.get('entry_price') or 0
+                exit_price = trade.get('exit_price') or 0
+                exit_reason = trade.get('exit_reason') or 'UNKNOWN'
+                hold_duration = trade.get('hold_duration') or 0
+
+                output += f"""│ {emoji} {trade_id:<25} {trade['side']:<5} {pnl_sign}${abs(pnl):>8,.2f} ({pnl_sign}{pnl_percent:.2f}%)
+│    Entry: ${entry_price:>10,.2f} → Exit: ${exit_price:>10,.2f}  Reason: {exit_reason}
+│    Hold: {hold_duration:.1f}m  Closed: {time_str}
 │ {'─'*76}
 """
         else:

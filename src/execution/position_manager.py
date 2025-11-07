@@ -251,15 +251,16 @@ class PositionManager:
             profit_pct = ((entry_price - current_price) / entry_price) * 100
 
         # Step 1: Move to breakeven if profit >= 0.5%
+        # CRITICAL FIX #6: Removed early return to allow trailing stop to activate
         if profit_pct >= self.breakeven_activation_percent:
             if side == 'LONG' and current_sl < entry_price:
                 position['stop_loss'] = entry_price
                 logger.info(f"🔒 Breakeven stop activated for {position['position_id']} @ ${entry_price:,.2f}")
-                return
+                # Don't return - continue to check trailing stop
             elif side == 'SHORT' and current_sl > entry_price:
                 position['stop_loss'] = entry_price
                 logger.info(f"🔒 Breakeven stop activated for {position['position_id']} @ ${entry_price:,.2f}")
-                return
+                # Don't return - continue to check trailing stop
 
         # Step 2: Activate trailing stop if profit >= 1.0%
         if profit_pct >= self.trailing_stop_activation_percent:

@@ -152,12 +152,19 @@ class LiveTradingBot:
         self.adx_engine = ADXEngine(period=cfg.get('adx_period', 14))
         logger.info("  ✅ ADX Engine initialized")
 
-        # Signal Generator
+        # Signal Generator with v2.2 improvements
+        # CRITICAL FIX #2: Pass all v2.2 parameters including api_client for MTF
         self.signal_gen = SignalGenerator(
             adx_threshold=cfg.get('adx_threshold', 25),
-            min_confidence=cfg.get('min_confidence', 0.6)
+            min_confidence=cfg.get('min_confidence', 0.6),
+            multi_timeframe_enabled=cfg.get('multi_timeframe', {}).get('enabled', True),
+            rsi_enabled=cfg.get('rsi', {}).get('enabled', True),
+            rsi_period=cfg.get('rsi', {}).get('period', 14),
+            rsi_long_range=tuple(cfg.get('rsi', {}).get('long_range', [50, 70])),
+            rsi_short_range=tuple(cfg.get('rsi', {}).get('short_range', [30, 50])),
+            api_client=self.api  # Enable multi-timeframe confirmation
         )
-        logger.info("  ✅ Signal Generator initialized")
+        logger.info("  ✅ Signal Generator initialized (v2.2: MTF + RSI)")
 
         # Signal Filters
         self.signal_filters = SignalFilters(
@@ -177,13 +184,17 @@ class LiveTradingBot:
         )
         logger.info("  ✅ Risk Manager initialized")
 
-        # Position Sizer
+        # Position Sizer with v2.2 slippage protection
+        position_cfg = cfg.get('position_sizing', {})
         self.sizer = PositionSizer(
             initial_capital=cfg.get('initial_capital', 100.0),
             risk_per_trade_percent=cfg.get('risk_per_trade', 2.0),
-            leverage=cfg.get('leverage', 5)
+            leverage=cfg.get('leverage', 5),
+            slippage_buffer_percent=position_cfg.get('slippage_buffer_percent', 0.5),
+            max_position_value_percent=position_cfg.get('max_position_value_percent', 10.0),
+            min_position_size_usd=position_cfg.get('min_position_size_usd', 20.0)
         )
-        logger.info("  ✅ Position Sizer initialized")
+        logger.info("  ✅ Position Sizer initialized (v2.2: Slippage Protection)")
 
         # Order Executor
         self.executor = OrderExecutor(
@@ -192,9 +203,16 @@ class LiveTradingBot:
         )
         logger.info("  ✅ Order Executor initialized (PAPER MODE)")
 
-        # Position Manager
-        self.position_mgr = PositionManager(order_executor=self.executor)
-        logger.info("  ✅ Position Manager initialized")
+        # Position Manager with v2.2 trailing stops
+        trailing_cfg = cfg.get('trailing_stop', {})
+        self.position_mgr = PositionManager(
+            order_executor=self.executor,
+            enable_trailing_stop=trailing_cfg.get('enabled', True),
+            trailing_stop_activation_percent=trailing_cfg.get('activation_percent', 1.0),
+            trailing_stop_atr_multiplier=trailing_cfg.get('atr_multiplier', 1.5),
+            breakeven_activation_percent=trailing_cfg.get('breakeven_activation_percent', 0.5)
+        )
+        logger.info("  ✅ Position Manager initialized (v2.2: Trailing Stops)")
 
         # Initialize Trader (Paper or Live based on mode)
         if self.mode == 'live':
@@ -279,6 +297,97 @@ class LiveTradingBot:
         except Exception as e:
             logger.warning(f"  ⚠️  Hourly Reporter disabled: {e}")
             self.hourly_reporter = None
+
+        # Validate v2.2 features are properly enabled
+        self._validate_v2_2_features()
+
+    def _validate_v2_2_features(self):
+        """
+        Validate that v2.2 improvements are properly configured and enabled
+        Fails fast if critical features are missing
+        """
+        logger.info("\n" + "=" * 70)
+        logger.info("VALIDATING v2.2 FEATURES")
+        logger.info("=" * 70)
+
+        errors = []
+        warnings = []
+
+        # Check RSI enabled
+        if not self.signal_gen.rsi_enabled:
+            errors.append("❌ RSI filter is DISABLED (should be enabled in v2.2)")
+        else:
+            logger.info("✅ RSI Filter: ENABLED")
+            logger.info(f"   - Period: {self.signal_gen.rsi_period}")
+            logger.info(f"   - LONG range: {self.signal_gen.rsi_long_range}")
+            logger.info(f"   - SHORT range: {self.signal_gen.rsi_short_range}")
+
+        # Check MTF enabled
+        if not self.signal_gen.multi_timeframe_enabled:
+            errors.append("❌ Multi-timeframe confirmation is DISABLED")
+        else:
+            logger.info("✅ Multi-Timeframe Confirmation: ENABLED")
+
+        # Check API client provided for MTF
+        if self.signal_gen.multi_timeframe_enabled and not self.signal_gen.api_client:
+            errors.append("❌ MTF enabled but no API client provided (MTF won't work)")
+        elif self.signal_gen.multi_timeframe_enabled:
+            logger.info("   - API client: Connected")
+
+        # Check trailing stops enabled
+        if not self.position_mgr.enable_trailing_stop:
+            errors.append("❌ Trailing stops are DISABLED")
+        else:
+            logger.info("✅ Trailing Stops: ENABLED")
+            logger.info(f"   - Breakeven at: {self.position_mgr.breakeven_activation_percent}%")
+            logger.info(f"   - Trailing at: {self.position_mgr.trailing_stop_activation_percent}%")
+            logger.info(f"   - ATR multiplier: {self.position_mgr.trailing_stop_atr_multiplier}x")
+
+        # Check slippage buffer
+        if self.sizer.slippage_buffer_percent <= 0:
+            warnings.append("⚠️  Slippage buffer is 0% (no slippage protection)")
+        else:
+            logger.info("✅ Slippage Protection: ENABLED")
+            logger.info(f"   - Buffer: {self.sizer.slippage_buffer_percent * 100:.0f}%")
+
+        # Check position value cap
+        if self.sizer.max_position_value_percent >= 20:
+            warnings.append(f"⚠️  Position value cap is {self.sizer.max_position_value_percent}% (risky, recommend 10%)")
+        else:
+            logger.info("✅ Position Value Cap: ENABLED")
+            logger.info(f"   - Max position: {self.sizer.max_position_value_percent}% of capital")
+
+        # Check leverage
+        if self.sizer.leverage >= 5:
+            warnings.append(f"⚠️  Leverage is {self.sizer.leverage}x (high risk, recommend 3x)")
+        else:
+            logger.info(f"✅ Leverage: {self.sizer.leverage}x (safe)")
+
+        # Check circuit breaker
+        circuit_breaker_limit = self.risk_mgr.consecutive_loss_limit
+        if circuit_breaker_limit > 5:
+            warnings.append(f"⚠️  Circuit breaker set to {circuit_breaker_limit} losses (recommend 3-5)")
+        else:
+            logger.info(f"✅ Circuit Breaker: {circuit_breaker_limit} consecutive losses")
+
+        logger.info("=" * 70)
+
+        # Print warnings
+        if warnings:
+            logger.warning("\nWARNINGS:")
+            for warning in warnings:
+                logger.warning(f"  {warning}")
+
+        # Print errors and fail if any
+        if errors:
+            logger.critical("\n🚨 v2.2 FEATURE VALIDATION FAILED:")
+            for error in errors:
+                logger.critical(f"  {error}")
+            logger.critical("\nBot startup aborted. Fix configuration and try again.")
+            raise RuntimeError("v2.2 features not properly configured")
+        else:
+            logger.info("\n✅ All v2.2 features validated successfully!")
+            logger.info("=" * 70 + "\n")
 
     def _restore_previous_session(self):
         """Restore trade history and account state from previous session"""
@@ -499,6 +608,11 @@ class LiveTradingBot:
             # Calculate ADX indicators
             df = self.adx_engine.analyze_dataframe(df)
 
+            # CRITICAL FIX #1: Calculate RSI before signal generation (v2.2)
+            if self.signal_gen.rsi_enabled:
+                df['rsi'] = self.signal_gen.calculate_rsi(df['close'])
+                logger.debug(f"  RSI calculated: latest = {df['rsi'].iloc[-1]:.1f}")
+
             # Calculate ATR for signal generation
             atr_values = self.signal_gen.calculate_atr(df['high'], df['low'], df['close'])
 
@@ -508,7 +622,8 @@ class LiveTradingBot:
                 row = df.iloc[i]
                 atr = atr_values.iloc[i] if not pd.isna(atr_values.iloc[i]) else 0
 
-                signal = self.signal_gen.generate_entry_signal(row, atr)
+                # Pass symbol for multi-timeframe confirmation
+                signal = self.signal_gen.generate_entry_signal(row, atr, self.config.get('symbol', 'BTC-USDT'))
                 if signal:
                     signal['timestamp'] = row['timestamp']
                     signals.append(signal)
