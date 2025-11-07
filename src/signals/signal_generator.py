@@ -270,6 +270,9 @@ class SignalGenerator:
 
         signal = None
 
+        # Format RSI for display (avoid f-string formatting issues with None)
+        rsi_str = f"{rsi:.1f}" if (rsi is not None and not pd.isna(rsi)) else 'N/A'
+
         if proposed_side == 'LONG':
             # Calculate LONG stop loss and take profit
             stop_loss = close_price - (atr * self.sl_atr_multiplier)
@@ -290,7 +293,7 @@ class SignalGenerator:
                 'confidence': confidence,
                 'atr': atr,
                 'rsi': rsi if rsi is not None else np.nan,  # NEW: Include RSI
-                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi is not None and not pd.isna(rsi) else 'N/A'}",
+                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi_str}",
                 'trend_strength': row.get('trend_strength', 'STRONG'),
                 'multi_timeframe_confirmed': self.multi_timeframe_enabled,  # NEW
                 'rsi_confirmed': self.rsi_enabled  # NEW
@@ -316,7 +319,7 @@ class SignalGenerator:
                 'confidence': confidence,
                 'atr': atr,
                 'rsi': rsi if rsi is not None else np.nan,  # NEW: Include RSI
-                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi is not None and not pd.isna(rsi) else 'N/A'}",
+                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi_str}",
                 'trend_strength': row.get('trend_strength', 'STRONG'),
                 'multi_timeframe_confirmed': self.multi_timeframe_enabled,  # NEW
                 'rsi_confirmed': self.rsi_enabled  # NEW
