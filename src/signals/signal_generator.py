@@ -43,7 +43,13 @@ class SignalGenerator:
                  min_confidence: float = 0.6,
                  atr_period: int = 14,
                  sl_atr_multiplier: float = 2.0,
-                 tp_atr_multiplier: float = 4.0):
+                 tp_atr_multiplier: float = 4.0,
+                 multi_timeframe_enabled: bool = True,
+                 rsi_enabled: bool = True,
+                 rsi_period: int = 14,
+                 rsi_long_range: tuple = (50, 70),
+                 rsi_short_range: tuple = (30, 50),
+                 api_client = None):
         """
         Initialize signal generator
 
@@ -56,6 +62,12 @@ class SignalGenerator:
             atr_period: ATR calculation period
             sl_atr_multiplier: Stop loss ATR multiplier
             tp_atr_multiplier: Take profit ATR multiplier
+            multi_timeframe_enabled: Enable multi-timeframe confirmation (1H + 15M + 5M)
+            rsi_enabled: Enable RSI confluence filter
+            rsi_period: RSI calculation period
+            rsi_long_range: RSI range for LONG entries (min, max)
+            rsi_short_range: RSI range for SHORT entries (min, max)
+            api_client: API client for fetching multi-timeframe data
         """
         self.adx_threshold = adx_threshold
         self.adx_weak_threshold = adx_weak_threshold
@@ -66,20 +78,137 @@ class SignalGenerator:
         self.sl_atr_multiplier = sl_atr_multiplier
         self.tp_atr_multiplier = tp_atr_multiplier
 
-        logger.info(f"Signal Generator initialized (ADX threshold: {adx_threshold})")
+        # NEW: Multi-timeframe and RSI improvements
+        self.multi_timeframe_enabled = multi_timeframe_enabled
+        self.rsi_enabled = rsi_enabled
+        self.rsi_period = rsi_period
+        self.rsi_long_range = rsi_long_range
+        self.rsi_short_range = rsi_short_range
+        self.api_client = api_client
+
+        logger.info(f"Signal Generator initialized (ADX threshold: {adx_threshold}, MTF: {multi_timeframe_enabled}, RSI: {rsi_enabled})")
 
     def calculate_atr(self, high: pd.Series, low: pd.Series,
                      close: pd.Series) -> pd.Series:
         """Calculate Average True Range"""
         return talib.ATR(high, low, close, timeperiod=self.atr_period)
 
-    def generate_entry_signal(self, row: pd.Series, atr: float) -> Optional[Dict]:
+    def calculate_rsi(self, close: pd.Series) -> pd.Series:
+        """Calculate Relative Strength Index"""
+        return talib.RSI(close, timeperiod=self.rsi_period)
+
+    def check_multi_timeframe_confirmation(self, symbol: str, current_side: str) -> bool:
         """
-        Generate entry signal based on ADX criteria
+        Check if higher timeframes confirm the signal direction
 
         Args:
-            row: Current candle data with ADX indicators
+            symbol: Trading symbol (e.g., "BTC-USDT")
+            current_side: Proposed trade side ("LONG" or "SHORT")
+
+        Returns:
+            True if all timeframes align, False otherwise
+        """
+        if not self.multi_timeframe_enabled or not self.api_client:
+            return True  # Skip check if disabled or no API client
+
+        try:
+            from src.indicators.adx_engine import ADXEngine
+            adx_engine = ADXEngine(period=14)
+
+            # Fetch 1H data
+            klines_1h = self.api_client.get_kline_data(symbol, "1h", limit=50)
+            if not klines_1h or len(klines_1h) < 30:
+                logger.warning("Insufficient 1H data for MTF confirmation")
+                return False
+
+            df_1h = pd.DataFrame(klines_1h)
+            df_1h = adx_engine.analyze_dataframe(df_1h)
+
+            # Fetch 15M data
+            klines_15m = self.api_client.get_kline_data(symbol, "15m", limit=50)
+            if not klines_15m or len(klines_15m) < 30:
+                logger.warning("Insufficient 15M data for MTF confirmation")
+                return False
+
+            df_15m = pd.DataFrame(klines_15m)
+            df_15m = adx_engine.analyze_dataframe(df_15m)
+
+            # Check 1H trend
+            plus_di_1h = df_1h['plus_di'].iloc[-1]
+            minus_di_1h = df_1h['minus_di'].iloc[-1]
+            adx_1h = df_1h['adx'].iloc[-1]
+
+            if current_side == 'LONG':
+                trend_1h_ok = (plus_di_1h > minus_di_1h and adx_1h > 20)
+            else:  # SHORT
+                trend_1h_ok = (minus_di_1h > plus_di_1h and adx_1h > 20)
+
+            # Check 15M trend
+            plus_di_15m = df_15m['plus_di'].iloc[-1]
+            minus_di_15m = df_15m['minus_di'].iloc[-1]
+            adx_15m = df_15m['adx'].iloc[-1]
+
+            if current_side == 'LONG':
+                trend_15m_ok = (plus_di_15m > minus_di_15m and adx_15m > 20)
+            else:  # SHORT
+                trend_15m_ok = (minus_di_15m > plus_di_15m and adx_15m > 20)
+
+            mtf_confirmed = trend_1h_ok and trend_15m_ok
+
+            if mtf_confirmed:
+                logger.info(f"✅ Multi-timeframe confirmed for {current_side} (1H: {adx_1h:.1f}, 15M: {adx_15m:.1f})")
+            else:
+                logger.info(f"❌ Multi-timeframe rejected {current_side} (1H OK: {trend_1h_ok}, 15M OK: {trend_15m_ok})")
+
+            return mtf_confirmed
+
+        except Exception as e:
+            logger.error(f"Error in multi-timeframe check: {e}")
+            return False  # Reject signal on error for safety
+
+    def check_rsi_filter(self, rsi: float, side: str) -> bool:
+        """
+        Check if RSI is in acceptable range for entry
+
+        Args:
+            rsi: Current RSI value
+            side: Trade side ("LONG" or "SHORT")
+
+        Returns:
+            True if RSI is in acceptable range, False otherwise
+        """
+        if not self.rsi_enabled:
+            return True  # Skip check if disabled
+
+        if pd.isna(rsi):
+            logger.warning("RSI is NaN, rejecting signal")
+            return False
+
+        if side == 'LONG':
+            # For LONG: RSI should be between 50-70 (bullish but not overbought)
+            rsi_ok = self.rsi_long_range[0] <= rsi <= self.rsi_long_range[1]
+            if rsi_ok:
+                logger.info(f"✅ RSI filter passed for LONG: {rsi:.1f} (range: {self.rsi_long_range})")
+            else:
+                logger.info(f"❌ RSI filter rejected LONG: {rsi:.1f} (range: {self.rsi_long_range})")
+        else:  # SHORT
+            # For SHORT: RSI should be between 30-50 (bearish but not oversold)
+            rsi_ok = self.rsi_short_range[0] <= rsi <= self.rsi_short_range[1]
+            if rsi_ok:
+                logger.info(f"✅ RSI filter passed for SHORT: {rsi:.1f} (range: {self.rsi_short_range})")
+            else:
+                logger.info(f"❌ RSI filter rejected SHORT: {rsi:.1f} (range: {self.rsi_short_range})")
+
+        return rsi_ok
+
+    def generate_entry_signal(self, row: pd.Series, atr: float, symbol: str = "BTC-USDT") -> Optional[Dict]:
+        """
+        Generate entry signal based on ADX criteria + RSI + Multi-timeframe
+
+        Args:
+            row: Current candle data with ADX indicators and RSI
             atr: Current ATR value
+            symbol: Trading symbol for multi-timeframe check
 
         Returns:
             Signal dictionary or None
@@ -92,6 +221,7 @@ class SignalGenerator:
         di_spread = abs(plus_di - minus_di) if plus_di and minus_di else 0
         confidence = row.get('confidence', 0)
         close_price = row.get('close')
+        rsi = row.get('rsi', None)  # NEW: Get RSI value
 
         # Validate data
         if pd.isna(adx) or pd.isna(plus_di) or pd.isna(minus_di):
@@ -119,9 +249,28 @@ class SignalGenerator:
             confidence >= self.min_confidence          # High confidence
         )
 
+        # NEW: Additional filters (RSI + Multi-timeframe)
+        # Check which side we're considering
+        if long_conditions:
+            proposed_side = 'LONG'
+        elif short_conditions:
+            proposed_side = 'SHORT'
+        else:
+            return None  # No signal
+
+        # NEW: RSI Filter
+        if rsi is not None and not self.check_rsi_filter(rsi, proposed_side):
+            logger.info(f"Signal rejected by RSI filter ({proposed_side}, RSI: {rsi:.1f})")
+            return None
+
+        # NEW: Multi-timeframe confirmation
+        if not self.check_multi_timeframe_confirmation(symbol, proposed_side):
+            logger.info(f"Signal rejected by multi-timeframe filter ({proposed_side})")
+            return None
+
         signal = None
 
-        if long_conditions:
+        if proposed_side == 'LONG':
             # Calculate LONG stop loss and take profit
             stop_loss = close_price - (atr * self.sl_atr_multiplier)
             take_profit = close_price + (atr * self.tp_atr_multiplier)
@@ -140,11 +289,14 @@ class SignalGenerator:
                 'di_spread': di_spread,
                 'confidence': confidence,
                 'atr': atr,
-                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} Slope={adx_slope:.2f}",
-                'trend_strength': row.get('trend_strength', 'STRONG')
+                'rsi': rsi if rsi is not None else np.nan,  # NEW: Include RSI
+                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi else 'N/A'}",
+                'trend_strength': row.get('trend_strength', 'STRONG'),
+                'multi_timeframe_confirmed': self.multi_timeframe_enabled,  # NEW
+                'rsi_confirmed': self.rsi_enabled  # NEW
             }
 
-        elif short_conditions:
+        elif proposed_side == 'SHORT':
             # Calculate SHORT stop loss and take profit
             stop_loss = close_price + (atr * self.sl_atr_multiplier)
             take_profit = close_price - (atr * self.tp_atr_multiplier)
@@ -163,8 +315,11 @@ class SignalGenerator:
                 'di_spread': di_spread,
                 'confidence': confidence,
                 'atr': atr,
-                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} Slope={adx_slope:.2f}",
-                'trend_strength': row.get('trend_strength', 'STRONG')
+                'rsi': rsi if rsi is not None else np.nan,  # NEW: Include RSI
+                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi else 'N/A'}",
+                'trend_strength': row.get('trend_strength', 'STRONG'),
+                'multi_timeframe_confirmed': self.multi_timeframe_enabled,  # NEW
+                'rsi_confirmed': self.rsi_enabled  # NEW
             }
 
         return signal
@@ -217,12 +372,13 @@ class SignalGenerator:
 
         return None
 
-    def scan_dataframe_for_signals(self, df: pd.DataFrame) -> List[Dict]:
+    def scan_dataframe_for_signals(self, df: pd.DataFrame, symbol: str = "BTC-USDT") -> List[Dict]:
         """
         Scan dataframe for all entry signals
 
         Args:
             df: DataFrame with OHLCV and ADX indicators
+            symbol: Trading symbol for multi-timeframe check
 
         Returns:
             List of signal dictionaries
@@ -232,11 +388,15 @@ class SignalGenerator:
         # Calculate ATR
         atr = self.calculate_atr(df['high'], df['low'], df['close'])
 
+        # NEW: Calculate RSI if enabled
+        if self.rsi_enabled:
+            df['rsi'] = self.calculate_rsi(df['close'])
+
         for idx, row in df.iterrows():
             if pd.isna(atr.iloc[idx]):
                 continue
 
-            signal = self.generate_entry_signal(row, atr.iloc[idx])
+            signal = self.generate_entry_signal(row, atr.iloc[idx], symbol)
 
             if signal:
                 # Add timestamp and index
@@ -244,7 +404,7 @@ class SignalGenerator:
                 signal['candle_index'] = idx
                 signals.append(signal)
 
-        logger.info(f"Found {len(signals)} signals in {len(df)} candles")
+        logger.info(f"Found {len(signals)} signals in {len(df)} candles (MTF: {self.multi_timeframe_enabled}, RSI: {self.rsi_enabled})")
         return signals
 
     def backtest_signal(self, entry_signal: Dict, df: pd.DataFrame,

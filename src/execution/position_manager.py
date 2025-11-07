@@ -32,22 +32,25 @@ class PositionManager:
 
     def __init__(self,
                  order_executor=None,
-                 enable_trailing_stop: bool = False,
-                 trailing_stop_activation: float = 0.5,
-                 trailing_stop_distance: float = 0.3):
+                 enable_trailing_stop: bool = True,
+                 trailing_stop_activation_percent: float = 1.0,
+                 trailing_stop_atr_multiplier: float = 1.5,
+                 breakeven_activation_percent: float = 0.5):
         """
         Initialize position manager
 
         Args:
             order_executor: OrderExecutor instance
-            enable_trailing_stop: Enable trailing stop loss
-            trailing_stop_activation: % profit to activate trailing (0.5% default)
-            trailing_stop_distance: % distance for trailing stop (0.3% default)
+            enable_trailing_stop: Enable trailing stop loss (default True)
+            trailing_stop_activation_percent: % profit to activate trailing (1.0% default)
+            trailing_stop_atr_multiplier: ATR multiplier for trailing stop distance (1.5x default)
+            breakeven_activation_percent: % profit to move stop to breakeven (0.5% default)
         """
         self.executor = order_executor
         self.enable_trailing_stop = enable_trailing_stop
-        self.trailing_stop_activation = trailing_stop_activation
-        self.trailing_stop_distance = trailing_stop_distance
+        self.trailing_stop_activation_percent = trailing_stop_activation_percent
+        self.trailing_stop_atr_multiplier = trailing_stop_atr_multiplier
+        self.breakeven_activation_percent = breakeven_activation_percent
 
         # Position tracking
         self.open_positions = {}
@@ -220,24 +223,81 @@ class PositionManager:
         position['pnl'] = pnl_with_leverage
         position['pnl_percent'] = pnl_percent_with_leverage
 
-    def _check_trailing_stop(self, position: Dict):
-        """Check and update trailing stop"""
-        if position['trailing_stop_active']:
+    def update_trailing_stop(self, position: Dict, current_price: float, atr: float = None):
+        """
+        Update trailing stop loss - NEW IMPROVED VERSION
+
+        This implements a dynamic trailing stop that:
+        1. Moves stop to breakeven at 0.5% profit
+        2. Activates trailing at 1.0% profit
+        3. Trails price by 1.5x ATR (or 0.5% if no ATR)
+
+        Args:
+            position: Position dictionary
+            current_price: Current market price
+            atr: Current ATR value (optional, for ATR-based trailing)
+        """
+        if not self.enable_trailing_stop:
             return
 
-        # Check if profit reached activation threshold
-        if position['pnl_percent'] >= self.trailing_stop_activation:
-            logger.info(f"🔄 Activating trailing stop for {position['position_id']}")
-            position['trailing_stop_active'] = True
+        side = position['side']
+        entry_price = position['entry_price']
+        current_sl = position['stop_loss']
 
-            # Adjust stop loss to trailing distance
-            if position['side'] == 'LONG':
-                new_sl = position['current_price'] * (1 - self.trailing_stop_distance / 100)
+        # Calculate current profit percentage
+        if side == 'LONG':
+            profit_pct = ((current_price - entry_price) / entry_price) * 100
+        else:  # SHORT
+            profit_pct = ((entry_price - current_price) / entry_price) * 100
+
+        # Step 1: Move to breakeven if profit >= 0.5%
+        if profit_pct >= self.breakeven_activation_percent:
+            if side == 'LONG' and current_sl < entry_price:
+                position['stop_loss'] = entry_price
+                logger.info(f"🔒 Breakeven stop activated for {position['position_id']} @ ${entry_price:,.2f}")
+                return
+            elif side == 'SHORT' and current_sl > entry_price:
+                position['stop_loss'] = entry_price
+                logger.info(f"🔒 Breakeven stop activated for {position['position_id']} @ ${entry_price:,.2f}")
+                return
+
+        # Step 2: Activate trailing stop if profit >= 1.0%
+        if profit_pct >= self.trailing_stop_activation_percent:
+            if not position.get('trailing_stop_active'):
+                position['trailing_stop_active'] = True
+                logger.info(f"🔄 Trailing stop activated for {position['position_id']} (Profit: {profit_pct:.2f}%)")
+
+            # Calculate trailing distance
+            if atr:
+                # ATR-based trailing (preferred)
+                trail_distance = atr * self.trailing_stop_atr_multiplier
             else:
-                new_sl = position['current_price'] * (1 + self.trailing_stop_distance / 100)
+                # Percentage-based trailing (fallback)
+                trail_distance = current_price * 0.005  # 0.5%
 
-            position['stop_loss'] = new_sl
-            logger.info(f"   New trailing SL: ${new_sl:,.2f}")
+            # Calculate new stop loss
+            if side == 'LONG':
+                new_sl = current_price - trail_distance
+                # Only move stop up, never down
+                if new_sl > current_sl:
+                    old_sl = current_sl
+                    position['stop_loss'] = new_sl
+                    logger.info(f"📈 Trailing stop updated for {position['position_id']}: ${old_sl:,.2f} → ${new_sl:,.2f}")
+            else:  # SHORT
+                new_sl = current_price + trail_distance
+                # Only move stop down, never up
+                if new_sl < current_sl:
+                    old_sl = current_sl
+                    position['stop_loss'] = new_sl
+                    logger.info(f"📉 Trailing stop updated for {position['position_id']}: ${old_sl:,.2f} → ${new_sl:,.2f}")
+
+    def _check_trailing_stop(self, position: Dict):
+        """
+        DEPRECATED: Use update_trailing_stop() instead
+        This method is kept for backward compatibility
+        """
+        # Call new improved method
+        self.update_trailing_stop(position, position.get('current_price', 0))
 
     def check_exit_conditions(self, position_id: str, current_price: float) -> tuple[bool, Optional[str]]:
         """

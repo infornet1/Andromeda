@@ -23,14 +23,33 @@
   "sl_atr_multiplier": 2.0,
   "tp_atr_multiplier": 4.0,
 
-  "enable_trailing_stop": false,
-  "trailing_stop_activation": 0.5,
-  "trailing_stop_distance": 0.3,
+  "comment_signal_quality_improvements": "=== NEW: Signal Quality Improvements (v2.2 - Nov 7, 2025) ===",
+
+  "multi_timeframe": {
+    "enabled": true,
+    "comment": "Confirm 5m signals with 15m and 1h timeframes before entry"
+  },
+
+  "rsi": {
+    "enabled": true,
+    "period": 14,
+    "long_range": [50, 70],
+    "short_range": [30, 50],
+    "comment": "Filter entries: LONG when RSI 50-70, SHORT when RSI 30-50"
+  },
+
+  "trailing_stop": {
+    "enabled": true,
+    "activation_percent": 1.0,
+    "atr_multiplier": 1.5,
+    "breakeven_activation_percent": 0.5,
+    "comment": "Move to breakeven at 0.5% profit, trail by 1.5x ATR at 1.0% profit"
+  },
 
   "dashboard_auth": {
     "username": "admin",
     "password_hash": "NEEDS_TO_BE_GENERATED"
   },
 
-  "comment": "ADX Strategy v2.0 - $160 Capital, $60 Max Loss (37.5%)"
+  "comment": "ADX Strategy v2.2 - Signal Quality Improvements: MTF + RSI + Trailing Stops"
 }
