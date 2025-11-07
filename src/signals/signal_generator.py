@@ -290,7 +290,7 @@ class SignalGenerator:
                 'confidence': confidence,
                 'atr': atr,
                 'rsi': rsi if rsi is not None else np.nan,  # NEW: Include RSI
-                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi else 'N/A'}",
+                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi is not None and not pd.isna(rsi) else 'N/A'}",
                 'trend_strength': row.get('trend_strength', 'STRONG'),
                 'multi_timeframe_confirmed': self.multi_timeframe_enabled,  # NEW
                 'rsi_confirmed': self.rsi_enabled  # NEW
@@ -316,7 +316,7 @@ class SignalGenerator:
                 'confidence': confidence,
                 'atr': atr,
                 'rsi': rsi if rsi is not None else np.nan,  # NEW: Include RSI
-                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi else 'N/A'}",
+                'entry_condition': f"ADX={adx:.2f} +DI={plus_di:.2f} -DI={minus_di:.2f} RSI={rsi:.1f if rsi is not None and not pd.isna(rsi) else 'N/A'}",
                 'trend_strength': row.get('trend_strength', 'STRONG'),
                 'multi_timeframe_confirmed': self.multi_timeframe_enabled,  # NEW
                 'rsi_confirmed': self.rsi_enabled  # NEW
