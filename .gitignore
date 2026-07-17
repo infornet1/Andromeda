@@ -55,3 +55,4 @@ test_dashboard_api.py
 test_dashboard_status.py
 test_*.py
 debug_*.py
+logs/
