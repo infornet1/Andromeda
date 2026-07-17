@@ -9,7 +9,12 @@ import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+import os
+import sys
 import json
+
+sys.path.insert(0, '/var/www/dev/trading')
+from email_config_loader import load_email_config
 
 logger = logging.getLogger('ADXEmailNotifier')
 
@@ -24,20 +29,18 @@ class ADXEmailNotifier:
         self.last_alert_time = {}
 
     def load_config(self, config_file):
-        """Load email configuration from JSON file"""
-        try:
-            with open(config_file, 'r') as f:
-                config = json.load(f)
-        except FileNotFoundError:
-            # Default configuration
+        """Load email configuration from JSON file (supports encryption)."""
+        config = load_email_config(config_file)
+        if config is None:
+            # Default configuration (no password)
             config = {
                 "smtp_server": "smtp.gmail.com",
                 "smtp_port": 587,
                 "smtp_use_tls": True,
-                "sender_email": "finanzas@ueipab.edu.ve",
-                "smtp_username": "finanzas@ueipab.edu.ve",
-                "smtp_password": "hcoe hawe gwwn mcvc",
-                "recipient_email": "perdomo.gustavo@gmail.com",
+                "sender_email": os.getenv("EMAIL_SENDER", ""),
+                "smtp_username": os.getenv("EMAIL_USERNAME", ""),
+                "smtp_password": os.getenv("EMAIL_PASSWORD", ""),
+                "recipient_email": os.getenv("EMAIL_RECIPIENT", "perdomo.gustavo@gmail.com"),
                 "alert_cooldown_minutes": 15
             }
 
